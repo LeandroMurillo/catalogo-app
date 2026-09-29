@@ -1,0 +1,91 @@
+%YAML 1.2
+---
+name: Dockerfile VS Code
+scope: source.dockerfile
+file_extensions:
+  - dockerfile
+contexts:
+  main:
+    - match: '^\s*#.*$'
+      scope: comment.dockerfile
+    - match: '^(\s*)(FROM)(\s+)([^:\s]+)(:[^\s]+)?(\s+AS\s+)?([^\s]+)?$'
+      captures:
+        2: keyword.directive.dockerfile
+        4: entity.name.image.dockerfile
+        5: string.unquoted.tag.dockerfile
+        6: keyword.directive.dockerfile
+        7: entity.name.stage.dockerfile
+    - match: '^(\s*)(ENV)(\s+)([A-Za-z_][A-Za-z_0-9]*)(=)'
+      captures:
+        2: keyword.directive.dockerfile
+        4: variable.name.dockerfile
+        5: punctuation.operator.dockerfile
+      push: env-value
+    - match: '^(\s*)(ARG)(\s+)([A-Za-z_][A-Za-z_0-9]*)(=)?'
+      captures:
+        2: keyword.directive.dockerfile
+        4: variable.name.dockerfile
+        5: punctuation.operator.dockerfile
+      push: argument-value
+    - match: '^(\s*)(CMD|ENTRYPOINT)(\s+)'
+      captures:
+        2: keyword.directive.dockerfile
+      push: json-value
+    - match: '^(\s*)(COPY|ADD)(\s+)'
+      captures:
+        2: keyword.directive.dockerfile
+      push: copy-value
+    - match: '^(\s*)(RUN|WORKDIR|USER|EXPOSE|LABEL|VOLUME)(\s+)(.*)$'
+      captures:
+        2: keyword.directive.dockerfile
+        4: string.unquoted.argument.dockerfile
+  env-value:
+    - match: '$'
+      pop: true
+    - match: '"'
+      scope: string.quoted.dockerfile
+      push: quoted-value
+    - match: '(\$)(\{)([^}]+)(\})'
+      captures:
+        1: variable.interpolation.dockerfile
+        2: punctuation.bracket.dockerfile
+        3: variable.name.dockerfile
+        4: punctuation.bracket.dockerfile
+    - match: '[0-9]+'
+      scope: constant.numeric.dockerfile
+    - match: '[^\s$"0-9]+'
+      scope: string.quoted.dockerfile
+  argument-value:
+    - match: '$'
+      pop: true
+    - match: '[^\s]+'
+      scope: string.unquoted.argument.dockerfile
+  copy-value:
+    - match: '$'
+      pop: true
+    - match: '(--[A-Za-z-]+)(=)([^\s]+)'
+      captures:
+        1: string.unquoted.argument.dockerfile
+        2: punctuation.operator.dockerfile
+        3: constant.other.flag-value.dockerfile
+    - match: '[^\s]+'
+      scope: string.unquoted.argument.dockerfile
+  json-value:
+    - match: '$'
+      pop: true
+    - match: '[\[\]]'
+      scope: punctuation.bracket.dockerfile
+    - match: ','
+      scope: punctuation.separator.dockerfile
+    - match: '"[^"\n]*"'
+      scope: string.quoted.dockerfile
+    - match: '[^\s\[\],]+'
+      scope: string.unquoted.argument.dockerfile
+  quoted-value:
+    - match: '"'
+      scope: string.quoted.dockerfile
+      pop: true
+    - match: '\$\{[^}]+\}'
+      scope: variable.interpolation.dockerfile
+    - match: '[^$"\n]+'
+      scope: string.quoted.dockerfile
