@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>name</key><string>Dockerfile in VS Code</string>
+  <key>settings</key>
+  <array>
+    <dict>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key><string>#C9D1D9</string>
+        <key>background</key><string>#121314</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>comment.dockerfile</string>
+      <key>settings</key><dict><key>foreground</key><string>#6A9955</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>keyword.directive.dockerfile</string>
+      <key>settings</key><dict><key>foreground</key><string>#C586C0</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>entity.name.stage.dockerfile</string>
+      <key>settings</key><dict><key>foreground</key><string>#4EC9B0</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>entity.name.image.dockerfile</string>
+      <key>settings</key><dict><key>foreground</key><string>#4EC9B0</string><key>fontStyle</key><string>underline</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>string.quoted.dockerfile</string>
+      <key>settings</key><dict><key>foreground</key><string>#A5D6FF</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>string.unquoted.tag.dockerfile, variable.name.dockerfile, variable.interpolation.dockerfile, constant.other.flag-value.dockerfile, punctuation.operator.dockerfile</string>
+      <key>settings</key><dict><key>foreground</key><string>#C9D1D9</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>string.unquoted.argument.dockerfile, constant.numeric.dockerfile, punctuation.separator.dockerfile</string>
+      <key>settings</key><dict><key>foreground</key><string>#FFA657</string></dict>
+    </dict>
+    <dict>
+      <key>scope</key><string>punctuation.bracket.dockerfile</string>
+      <key>settings</key><dict><key>foreground</key><string>#FFD700</string></dict>
+    </dict>
+  </array>
+</dict>
+</plist>
