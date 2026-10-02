@@ -131,6 +131,20 @@
   El valor obtenido, que supera el gigabyte, es el punto de comparación de todo el práctico.
 
   #consola("backend/Dockerfile.naive", read("../backend/Dockerfile.naive"), lenguaje: "dockerfile")
+
+  #consola(
+    "PowerShell — docker build",
+    [
+      ```text
+      PS catalogo-app> docker build -f backend/Dockerfile.naive `
+      >>   -t catalogo-api:naive ./backend
+
+      ...
+      => exporting to image
+      => => naming to docker.io/library/catalogo-api:naive
+      ```
+    ],
+  )
 ]
 
 #consigna(2)[
@@ -138,7 +152,7 @@
 
   #incisos(
     [una etapa `builder` que ejecute `pip install --user --no-cache-dir -r requirements.txt`.
-    El parámetro `--user` deja todo lo instalado en un único directorio, que es lo único que la etapa final necesita copiar;],
+      El parámetro `--user` deja todo lo instalado en un único directorio, que es lo único que la etapa final necesita copiar;],
     [el `COPY` de `requirements.txt` *antes* que el código, de modo que la capa de instalación salga del cache cuando el manifiesto no cambie;],
     [una etapa final con base mínima (`python:3.12-slim`), el `COPY --from=builder` del directorio de dependencias y la variable `PATH` ajustada para que los ejecutables instalados —`uvicorn` entre ellos— resulten localizables;],
     [*usuario no privilegiado creado explícitamente* con `useradd`: a diferencia de la imagen de Node, la de Python no provee ninguno;],
@@ -177,6 +191,8 @@
   etapa final con `nginxinc/nginx-unprivileged:1.27-alpine` que reciba *solo* el
   directorio `dist/`. En la imagen final no puede quedar Node, ni npm, ni `node_modules`, ni el código fuente.
 ]
+
+#consola("frontend/Dockerfile", read("../frontend/Dockerfile"), lenguaje: "dockerfile")
 
 #consigna(6)[
   Declarar en el `Dockerfile` del frontend la configuración que nginx resolverá *al arrancar*,
