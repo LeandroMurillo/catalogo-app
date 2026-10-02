@@ -8,6 +8,8 @@ COPY --from=builder /root/.local /home/catalogo/.local
 COPY . .
 ENV PATH="/home/catalogo/.local/bin:${PATH}" \
     PYTHONUNBUFFERED=1
+ARG APP_VERSION=v1
+ENV APP_VERSION=${APP_VERSION}
 USER catalogo
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
