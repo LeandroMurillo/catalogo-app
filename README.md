@@ -25,9 +25,9 @@ cada producto.
 El frontend es el único punto de entrada: nadie le habla a la base
 directamente, y a la API le habla el frontend.
 
-# Levantar la aplicación por comandos de Docker 
+# Levantar la aplicación por comandos de Docker
 
-La aplicación debe levantarse manualmente respetando el siguiente orden:
+La aplicación debe levantarse manualmente respetando el siguiente orden. Obsérvese que la base de datos no publica puertos hacia el host, ya que constituye la capa más interna de la aplicación y solo debe ser accesible desde los contenedores conectados a la red Docker `catalogo-net`.
 
 ```bash
 # 1. Creamos la red
