@@ -48,10 +48,19 @@
 #let comandos(cuerpo) = block(
   width: 100%, inset: 6pt,
   fill: rgb("#F4F4F4"), stroke: 0.6pt + rgb("#CCCCCC"),
-  radius: 1.5pt, breakable: false,
+  radius: 1.5pt, breakable: true,
 )[
   #set par(justify: false, leading: 6.9pt, spacing: 0pt)
-  #show raw: set text(font: "Liberation Mono", size: 8.1pt)
+  #show raw: it => {
+    set text(font: "Liberation Mono", size: 8.1pt)
+    // La regla también recibe el raw generado: insertar los cortes solo una vez.
+    if it.text.contains("\u{200b}") or it.text.len() < 2 {
+      it
+    } else {
+      let ajustado = it.text.clusters().join("\u{200b}")
+      raw(ajustado, block: it.block, lang: it.lang)
+    }
+  }
   #cuerpo
 ]
 
@@ -155,11 +164,7 @@ Fuente de las evidencias: `docs/evidence/tp3.txt`. Ejecución del 4 de octubre
     ```text
     homelab@rp5:~/Documents/catalogo-app$ docker run -d --name catalogo-db --network catalogo-net -e MONGO_INITDB_ROOT_USERNAME=catalogo_user -e MONGO_INITDB_ROOT_PASSWORD=catalogo_pass -v catalogo-db-data:/data/db mongo:7
     cd59c9d7d1bbcd2ff291a9ddedcb4ff08f5c65498f074389fe3e8bdb03a6d45a
-    ```
-  ]
 
-  #comandos[
-    ```text
     homelab@rp5:~/Documents/catalogo-app$ docker logs catalogo-db 2>&1 | grep "Waiting for connections"
     {"t":{"$date":"2026-10-06T23:00:45.520+00:00"},"s":"I",  "c":"NETWORK",  "id":23016,   "ctx":"listener","msg":"Waiting for connections","attr":{"port":27017,"ssl":"off"}}
     ```
@@ -189,13 +194,42 @@ Fuente de las evidencias: `docs/evidence/tp3.txt`. Ejecución del 4 de octubre
       o consultando la colección con `mongosh`.],
   )
 
+  #comandos[
+    ```text
+    # Ejecución del contenedor de la API.
+    homelab@rp5:~/Documents/catalogo-app$ docker run -d --name catalogo-api --network catalogo-net -p 8000:8000 -e DB_HOST=catalogo-db -e DB_PORT=27017 -e DB_NAME=catalogodb -e DB_USER=catalogo_user -e DB_PASSWORD=catalogo_pass -e APP_VERSION=v1 -e ROOT_PATH=/api -e SEED_DEMO=true catalogo-api:v1
+    0401fa1d5697faae0d65157c448293868ad8d99607709712ae92d20bfaa51e65
+
+    # a) Resolución del nombre `catalogo-db` en la red interna.
+    homelab@rp5:~/Documents/catalogo-app$ docker exec catalogo-api getent hosts catalogo-db
+    172.18.0.2      catalogo-db
+
+    # Comprobación del inicio de la API y de la conexión con MongoDB.
+    homelab@rp5:~/Documents/catalogo-app$ docker logs catalogo-api
+    INFO:     Started server process [1]
+    INFO:     Waiting for application startup.
+    [2026-10-07T02:05:52+0000] INFO conexión a MongoDB establecida (base=catalogodb)
+    [2026-10-07T02:05:52+0000] INFO catálogo de demo sembrado (12 productos)
+    INFO:     Application startup complete.
+    INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+
+    # b) Comprobación del estado de la API.
+    homelab@rp5:~/Documents/catalogo-app$ curl -s localhost:8000/health
+    {"status":"ok","db":"ok","version":"v1"}
+
+    # c) Consulta de los productos sembrados.
+    homelab@rp5:~/Documents/catalogo-app$ curl -s localhost:8000/productos
+    [{"sku":999666,"categoria":"Apple","creado_en":"2026-10-07T02:05:52.505000","descripcion":"Clásico de 4.7\" con Touch ID y cuerpo de aluminio.","imagen_hash":"7e23251b780a76a1","imagen_tipo":"image/jpeg","nombre":"Apple iPhone 6 (Gold, 32 GB)","precio":44000,"stock":2,"id":"6ac5a9003376de06cf3ec2d4","imagen":true},{"sku":379182,"categoria":"Apple","creado_en":"2026-10-07T02:05:52.518000","descripcion":"Pantalla Retina HD de 5.5\", carga inalámbrica y chip A11.","imagen_hash":"27cf5a0cc72a5c03","imagen_tipo":"image/jpeg","nombre":"Apple iPhone 8 Plus (Silver, 64 GB)","precio":48000,"stock":6,"id":"6ac5a9003376de06cf3ec2da","imagen":true},{"sku":456654,"categoria":"Apple","creado_en":"2026-10-07T02:05:52.489000","descripcion":"Super Retina de 5.8\", Face ID y chip A11 Bionic.","imagen_hash":"8101c6ff7c22f74d","imagen_tipo":"image/jpeg","nombre":"Apple iPhone X (Space Gray, 256 GB)","precio":25000,"stock":3,"id":"6ac5a9003376de06cf3ec2ca","imagen":true},{"sku":963852,"categoria":"Asus","creado_en":"2026-10-07T02:05:52.502000","descripcion":"Batería de 4000 mAh que funciona también como power bank.","imagen_hash":"95255abbb146483b","imagen_tipo":"image/jpeg","nombre":"Asus ZenFone Max M1 (Black, 32 GB) (3 GB RAM)","precio":84000,"stock":0,"id":"6ac5a9003376de06cf3ec2d2","imagen":true},{"sku":123222,"categoria":"Honor","creado_en":"2026-10-07T02:05:52.495000","descripcion":"Pantalla FullView de 5.84\" con notch y cámara dual de 13 MP.","imagen_hash":"1e45d7360052e1e1","imagen_tipo":"image/jpeg","nombre":"Honor 9N (Midnight Black, 32 GB) (3 GB RAM)","precio":39000,"stock":11,"id":"6ac5a9003376de06cf3ec2ce","imagen":true},{"sku":741852,"categoria":"Lenovo","creado_en":"2026-10-07T02:05:52.499000","descripcion":"Procesador Helio X23 de diez núcleos y Android puro.","imagen_hash":"5bf64a1fb53294cd","imagen_tipo":"image/jpeg","nombre":"Lenovo K8 Note (Venom Black, 64 GB) (4 GB RAM)","precio":36000,"stock":5,"id":"6ac5a9003376de06cf3ec2d0","imagen":true},{"sku":357842,"categoria":"OPPO","creado_en":"2026-10-07T02:05:52.485000","descripcion":"Lector de huellas bajo la pantalla AMOLED y cámara frontal de 25 MP.","imagen_hash":"24b3652bc891267c","imagen_tipo":"image/jpeg","nombre":"OPPO K1 (Piano Black, 64 GB) (4 GB RAM)","precio":65000,"stock":6,"id":"6ac5a9003376de06cf3ec2c8","imagen":true},{"sku":852369,"categoria":"Xiaomi","creado_en":"2026-10-07T02:05:52.476000","descripcion":"Pantalla 5.99\" HD+, cámara dual de 12 MP y batería de 3080 mAh.","imagen_hash":"3926b6235eecc7b3","imagen_tipo":"image/jpeg","nombre":"Redmi Y2 (Black, 32 GB) (3 GB RAM)","precio":25000,"stock":14,"id":"6ac5a9003376de06cf3ec2c4","imagen":true},{"sku":848484,"categoria":"Samsung","creado_en":"2026-10-07T02:05:52.513000","descripcion":"Super AMOLED de 6.3\" y cámara dual de 16 MP + 24 MP.","imagen_hash":"6e0b6f7b0f8514c0","imagen_tipo":"image/jpeg","nombre":"Samsung Galaxy A8 Star (White, 64 GB) (6 GB RAM)","precio":78000,"stock":8,"id":"6ac5a9003376de06cf3ec2d8","imagen":true},{"sku":332211,"categoria":"Samsung","creado_en":"2026-10-07T02:05:52.509000","descripcion":"Primer smartphone con cuatro cámaras traseras y pantalla de 6.3\".","imagen_hash":"97b0b86fea2f5dc7","imagen_tipo":"image/jpeg","nombre":"Samsung Galaxy A9 (Bubblegum Pink, 128 GB)","precio":97000,"stock":4,"id":"6ac5a9003376de06cf3ec2d6","imagen":true},{"sku":159753,"categoria":"Samsung","creado_en":"2026-10-07T02:05:52.481000","descripcion":"Batería de 5000 mAh con carga rápida y pantalla Infinity-V de 6.3\".","imagen_hash":"178a6127bb70f3cb","imagen_tipo":"image/jpeg","nombre":"Samsung Galaxy M20 (Charcoal Black, 4+64GB)","precio":58000,"stock":9,"id":"6ac5a9003376de06cf3ec2c6","imagen":true},{"sku":358426,"categoria":"Vivo","creado_en":"2026-10-07T02:05:52.491000","descripcion":"Cámara frontal pop-up de 32 MP y triple cámara trasera de 48 MP.","imagen_hash":"11814686e87c1818","imagen_tipo":"image/jpeg","nombre":"Vivo V15 Pro (Topaz Blue, 128 GB) (6 GB RAM)","precio":55000,"stock":7,"id":"6ac5a9003376de06cf3ec2cc","imagen":true}]
+
+    # Conteo de documentos en la colección.
+    homelab@rp5:~/Documents/catalogo-app$ docker exec catalogo-db mongosh --quiet 'mongodb://catalogo_user:catalogo_pass@localhost:27017/catalogodb?authSource=admin' --eval 'db.productos.countDocuments({})'
+    12
+    ```
+  ]
+
   El valor `DB_HOST=catalogo-db` es un *nombre*, no una dirección IP: lo resuelve el servidor
   DNS interno de la red. En la red `bridge` predeterminada esa resolución no funcionaría.
 ]
-
-#evidencia("Arranque de la API y resolución del nombre — inciso a", (12, 13, 16))
-#evidencia("Estado de la API — inciso b", (17,))
-#evidencia("Productos sembrados y cantidad — inciso c", (18, 19))
 
 #pagebreak()
 
