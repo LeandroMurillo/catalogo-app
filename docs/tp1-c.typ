@@ -37,7 +37,7 @@
     inset: 10pt,
   )[
     #set text(
-      font: "Courier New",
+      font: "Liberation Mono",
       size: 9pt,
       fill: rgb("#D4D4D4"),
     )
