@@ -2,7 +2,7 @@
   paper: "a4",
   margin: (x: 2.5cm, y: 2cm),
   footer: context {
-    set text(font: "Arial", size: 8.5pt)
+    set text(font: "Liberation Sans", size: 8.5pt)
     set par(justify: false, leading: 5pt, spacing: 0pt)
     block(width: 100%, stroke: (top: 0.7pt), inset: (top: 3pt))[
       #grid(
@@ -16,11 +16,11 @@
   },
 )
 
-#set text(font: "Times New Roman", size: 11.5pt, lang: "es", hyphenate: false)
+#set text(font: "Liberation Serif", size: 11.5pt, lang: "es", hyphenate: false)
 #set par(justify: true, leading: 8.7pt, spacing: 8pt)
 #set heading(numbering: none)
 #show heading: set text(size: 11.5pt, weight: "bold")
-#show raw: set text(font: "Courier New", size: 10.35pt)
+#show raw: set text(font: "Liberation Mono", size: 10.35pt)
 #set list(marker: [○], indent: 3.5pt, body-indent: 6pt)
 
 #let consigna(numero, cuerpo) = {
@@ -51,7 +51,7 @@
   radius: 1.5pt, breakable: false,
 )[
   #set par(justify: false, leading: 6.9pt, spacing: 0pt)
-  #show raw: set text(font: "Courier New", size: 8.1pt)
+  #show raw: set text(font: "Liberation Mono", size: 8.1pt)
   #cuerpo
 ]
 
@@ -76,7 +76,7 @@
       radius: 2pt, breakable: true, above: 4pt, below: 5pt,
     )[
       #set par(justify: false, leading: 3pt, spacing: 0pt)
-      #show raw: set text(font: "Consolas", size: 8pt)
+      #show raw: set text(font: "Liberation Mono", size: 8pt)
       #raw(ajustado, block: true, lang: "text")
     ]
   }
@@ -308,4 +308,3 @@ Fuente de las evidencias: `docs/evidence/tp3.txt`. Ejecución del 4 de octubre
 ]
 
 #text(style: "italic")[Pendiente de redacción. El registro no contiene una justificación para esta consigna.]
-
