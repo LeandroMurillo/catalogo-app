@@ -112,9 +112,24 @@ Fuente de las evidencias: `docs/evidence/tp3.txt`. Ejecución del 4 de octubre
     docker volume create catalogo-db-data
     ```
   ]
-]
 
-#evidencia("Creación de la red y del volumen", (0, 2, 3, 4, 5))
+  #comandos[
+    ```text
+    homelab@rp5:~/Documents/catalogo-app$ docker network ls
+    NETWORK ID     NAME           DRIVER    SCOPE
+    6787f465fb08   bridge         bridge    local
+    2a8c3a3a55a5   catalogo-net   bridge    local
+    e43ff3617b0a   host           host      local
+    501a54eb7c99   none           null      local
+
+    homelab@rp5:~/Documents/catalogo-app$ docker volume ls
+    DRIVER    VOLUME NAME
+    local     8dbb5fc9bc215afe5a3a5d1418910be2f6829388ddc8066e7343093504e9906b
+    local     c0438e22d2bf138e1888a4685f739efeab5691d5056daab1552a5b314f187885
+    local     catalogo-db-data
+    ```
+  ]
+]
 
 #pagebreak()
 
@@ -135,10 +150,21 @@ Fuente de las evidencias: `docs/evidence/tp3.txt`. Ejecución del 4 de octubre
   debe alcanzarse desde `catalogo-net`. Corresponde justificar esa decisión por escrito en el
   `README.md`. Registrar además la línea del registro que informa que el motor se encuentra a la
   espera de conexiones.
-]
 
-#evidencia("Arranque de MongoDB y primera comprobación", (7, 8, 9, 10))
-#evidencia("Comprobación posterior de MongoDB", (14, 15))
+  #comandos[
+    ```text
+    homelab@rp5:~/Documents/catalogo-app$ docker run -d --name catalogo-db --network catalogo-net -e MONGO_INITDB_ROOT_USERNAME=catalogo_user -e MONGO_INITDB_ROOT_PASSWORD=catalogo_pass -v catalogo-db-data:/data/db mongo:7
+    cd59c9d7d1bbcd2ff291a9ddedcb4ff08f5c65498f074389fe3e8bdb03a6d45a
+    ```
+  ]
+
+  #comandos[
+    ```text
+    homelab@rp5:~/Documents/catalogo-app$ docker logs catalogo-db 2>&1 | grep "Waiting for connections"
+    {"t":{"$date":"2026-10-06T23:00:45.520+00:00"},"s":"I",  "c":"NETWORK",  "id":23016,   "ctx":"listener","msg":"Waiting for connections","attr":{"port":27017,"ssl":"off"}}
+    ```
+  ]
+]
 
 #pagebreak()
 

@@ -70,6 +70,13 @@ docker run -d \
   catalogo-frontend:v1
 ```
 
+Resultado registrado al ejecutar el contenedor de MongoDB:
+
+```console
+homelab@rp5:~/Documents/catalogo-app$ docker run -d --name catalogo-db --network catalogo-net -e MONGO_INITDB_ROOT_USERNAME=catalogo_user -e MONGO_INITDB_ROOT_PASSWORD=catalogo_pass -v catalogo-db-data:/data/db mongo:7
+cd59c9d7d1bbcd2ff291a9ddedcb4ff08f5c65498f074389fe3e8bdb03a6d45a
+```
+
 Es importante respetar este orden de arranque, ya que los distintos componentes de la aplicación tienen dependencias entre sí. Alterar la secuencia puede provocar los siguientes problemas:
 
 - Si catalogo-net no existe al ejecutar un contenedor con --network catalogo-net, Docker no podrá conectarlo a la red y el comando fallará. Además, un contenedor ejecutado sin especificar esta red quedará conectado a la red bridge por defecto y no podrá resolver por nombre a los contenedores de catalogo-net.
