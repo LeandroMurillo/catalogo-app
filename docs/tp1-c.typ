@@ -146,7 +146,7 @@ contenedor que se detiene con un mensaje de error.
 
 4) Consultar la documentación oficial de la imagen mongo en Docker Hub y determinar cuáles
 son las variables de entorno que crean el usuario inicial. Ejecutar nuevamente el contenedor,
-esta vez con el usuario catalogo_user y la contraseña [REDACTED], y acompañar la
+esta vez con el usuario catalogo_user y la contraseña indicada como `[REDACTED]`, y acompañar la
 salida de docker logs -f hasta la aparición del mensaje que indica que el servidor se
 encuentra a la espera de conexiones.
 

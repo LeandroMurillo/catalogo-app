@@ -31,7 +31,7 @@ Escucha en el puerto **8000**.
 | `DB_PORT` | `27017` | Puerto de MongoDB |
 | `DB_NAME` | `catalogodb` | Nombre de la base |
 | `DB_USER` | `catalogo_user` | Usuario |
-| `DB_PASSWORD` | `[REDACTED]` | Contraseña |
+| `DB_PASSWORD` | *(obligatoria)* | Contraseña |
 | `APP_VERSION` | `v1` | Lo que devuelve `/health` en `version` |
 | `SEED_DEMO` | `true` | Carga el catálogo de ejemplo. `false` para no hacerlo |
 | `ROOT_PATH` | `/api` | Prefijo bajo el que la API queda publicada. **Vacío si se accede directo** |
@@ -45,10 +45,12 @@ Escucha en el puerto **8000**.
 **1. La base de datos.** Hace falta un MongoDB 7:
 
 ```bash
+read -rsp "Contraseña de MongoDB: " DB_PASSWORD && export DB_PASSWORD
+
 docker run -d --name catalogo-db \
   -e MONGO_INITDB_ROOT_USERNAME=catalogo_user \
-  -e MONGO_INITDB_ROOT_PASSWORD=[REDACTED] \
-  -p 27017:27017 \
+  -e MONGO_INITDB_ROOT_PASSWORD="$DB_PASSWORD" \
+  -p 127.0.0.1:27017:27017 \
   mongo:7
 ```
 
@@ -59,7 +61,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 export DB_HOST=localhost DB_PORT=27017
-export DB_NAME=catalogodb DB_USER=catalogo_user DB_PASSWORD=[REDACTED]
+export DB_NAME=catalogodb DB_USER=catalogo_user
 export ROOT_PATH=
 
 uvicorn main:app --host 0.0.0.0 --port 8000

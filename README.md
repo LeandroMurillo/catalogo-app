@@ -30,6 +30,9 @@ directamente, y a la API le habla el frontend.
 La aplicación debe levantarse manualmente respetando el siguiente orden. Obsérvese que la base de datos no publica puertos hacia el host, ya que constituye la capa más interna de la aplicación y solo debe ser accesible desde los contenedores conectados a la red Docker `catalogo-net`.
 
 ```bash
+# La contraseña se solicita sin mostrarla ni guardarla en el historial del shell.
+read -rsp "Contraseña de MongoDB: " DB_PASSWORD && export DB_PASSWORD
+
 # 1. Creamos la red
 docker network create catalogo-net
 
@@ -41,7 +44,7 @@ docker run -d \
   --name catalogo-db \
   --network catalogo-net \
   -e MONGO_INITDB_ROOT_USERNAME=catalogo_user \
-  -e MONGO_INITDB_ROOT_PASSWORD=[REDACTED] \
+  -e MONGO_INITDB_ROOT_PASSWORD="$DB_PASSWORD" \
   -v catalogo-db-data:/data/db \
   mongo:7
 
@@ -53,11 +56,11 @@ docker run -d \
   -e DB_PORT=27017 \
   -e DB_NAME=catalogodb \
   -e DB_USER=catalogo_user \
-  -e DB_PASSWORD=[REDACTED] \
+  -e DB_PASSWORD="$DB_PASSWORD" \
   -e APP_VERSION=v1 \
   -e ROOT_PATH=/api \
   -e SEED_DEMO=true \
-  -p 8000:8000 \
+  -p 127.0.0.1:8000:8000 \
   catalogo-api:v1
 
 # 5. Levantamos el frontend

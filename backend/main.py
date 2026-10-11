@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote_plus
 
 from bson import Binary, ObjectId
 from bson.errors import InvalidId
@@ -55,13 +56,19 @@ DATA_URI = re.compile(r"^data:(?P<tipo>[\w/+.-]+);base64,(?P<datos>.+)$", re.S)
 # authSource=admin: el usuario root creado por MONGO_INITDB_ROOT_* vive en la
 # base 'admin', no en la de la aplicación. Sin este parámetro la autenticación
 # falla con "Authentication failed" aunque usuario y password sean correctos.
-MONGO_URI = os.environ.get("MONGO_URI") or (
-    f"mongodb://{os.environ.get('DB_USER', 'catalogo_user')}"
-    f":{os.environ.get('DB_PASSWORD', '[REDACTED]')}"
-    f"@{os.environ.get('DB_HOST', 'localhost')}"
-    f":{os.environ.get('DB_PORT', '27017')}"
-    f"/{DB_NAME}?authSource=admin"
-)
+MONGO_URI = os.environ.get("MONGO_URI")
+if not MONGO_URI:
+    db_user = os.environ.get("DB_USER", "catalogo_user")
+    db_password = os.environ.get("DB_PASSWORD")
+    if not db_password:
+        raise RuntimeError("DB_PASSWORD es obligatoria cuando MONGO_URI no esta definida")
+
+    MONGO_URI = (
+        f"mongodb://{quote_plus(db_user)}:{quote_plus(db_password)}"
+        f"@{os.environ.get('DB_HOST', 'localhost')}"
+        f":{os.environ.get('DB_PORT', '27017')}"
+        f"/{DB_NAME}?authSource=admin"
+    )
 
 cliente = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
 productos = cliente[DB_NAME]["productos"]
