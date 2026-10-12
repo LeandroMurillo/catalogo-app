@@ -4,8 +4,8 @@ services:
       context: ./frontend
     image: catalogo-frontend:v1
     environment:
-      API_HOST: catalogo-api
-      API_PORT: 8000
+      API_HOST: ${API_HOST:?API_HOST es obligatoria}
+      API_PORT: ${API_PORT:?API_PORT es obligatoria}
     ports:
       - "3000:8080"
     networks:
@@ -28,14 +28,15 @@ services:
       context: ./backend
     image: catalogo-api:v1
     environment:
-      DB_HOST: catalogo-db
-      DB_PORT: 27017
-      DB_NAME: catalogodb
-      DB_USER: catalogo_user
-      DB_PASSWORD: ${DB_PASSWORD}
-      APP_VERSION: v1
-      ROOT_PATH: /api
-      SEED_DEMO: "true"
+      DB_HOST: ${DB_HOST:?DB_HOST es obligatoria}
+      DB_PORT: ${DB_PORT:?DB_PORT es obligatoria}
+      DB_NAME: ${DB_NAME:?DB_NAME es obligatoria}
+      DB_USER: ${DB_USER:?DB_USER es obligatoria}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD es obligatoria}
+      MONGO_URI: ${MONGO_URI:-}
+      APP_VERSION: ${APP_VERSION:?APP_VERSION es obligatoria}
+      ROOT_PATH: ${ROOT_PATH:?ROOT_PATH es obligatoria}
+      SEED_DEMO: ${SEED_DEMO:?SEED_DEMO es obligatoria}
     ports:
       - "127.0.0.1:8000:8000"
     networks:
@@ -58,8 +59,8 @@ services:
   catalogo-db:
     image: mongo:7
     environment:
-      MONGO_INITDB_ROOT_USERNAME: catalogo_user
-      MONGO_INITDB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MONGO_INITDB_ROOT_USERNAME: ${DB_USER:?DB_USER es obligatoria}
+      MONGO_INITDB_ROOT_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD es obligatoria}
     volumes:
       - catalogo-db-data:/data/db
     networks:

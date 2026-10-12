@@ -25,7 +25,67 @@ cada producto.
 El frontend es el único punto de entrada: nadie le habla a la base
 directamente, y a la API le habla el frontend.
 
-# Levantar la aplicación por comandos de Docker
+## Configuración con Docker Compose
+
+La configuración de cada entorno se mantiene fuera de las imágenes. Docker Compose lee `.env`
+automáticamente desde la raíz del proyecto, mientras que `.env.example` documenta el contrato de
+variables sin incluir secretos reales. El archivo `.env` es local y está excluido de Git.
+
+Para configurar el proyecto por primera vez:
+
+```bash
+cp .env.example .env
+```
+
+Luego se debe editar `.env` y asignar una contraseña segura a `DB_PASSWORD`. Las demás variables
+incluyen valores adecuados para el entorno local con Compose:
+
+| Variable | Consumidor | Finalidad |
+| --- | --- | --- |
+| `API_HOST` | Frontend (nginx) | Nombre interno de la API |
+| `API_PORT` | Frontend (nginx) | Puerto interno de la API |
+| `DB_HOST` | API | Nombre interno de MongoDB |
+| `DB_PORT` | API | Puerto interno de MongoDB |
+| `DB_NAME` | API | Base de datos de la aplicación |
+| `DB_USER` | API y MongoDB | Usuario compartido; Compose lo asigna a `MONGO_INITDB_ROOT_USERNAME` |
+| `DB_PASSWORD` | API y MongoDB | Contraseña compartida; Compose la asigna a `MONGO_INITDB_ROOT_PASSWORD` |
+| `MONGO_URI` | API | URI de conexión opcional que reemplaza las variables `DB_*` para la conexión |
+| `APP_VERSION` | API | Versión informada por `/health` |
+| `ROOT_PATH` | API | Prefijo externo bajo el que se publica FastAPI |
+| `SEED_DEMO` | API | Activa o desactiva la carga del catálogo de ejemplo |
+
+Todas las variables operativas son obligatorias en Compose, excepto `MONGO_URI`, que puede quedar
+vacía para utilizar `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` y `DB_PASSWORD`.
+
+Antes de iniciar, se puede validar que estén definidas todas las variables requeridas sin imprimir
+sus valores:
+
+```bash
+docker compose config --quiet
+docker compose config --variables
+```
+
+La aplicación se construye e inicia en segundo plano con:
+
+```bash
+docker compose up --build -d
+docker compose ps
+```
+
+Para usar otro entorno no hace falta duplicar el archivo Compose ni reconstruir imágenes. Se indica
+un archivo de variables diferente en cada comando:
+
+```bash
+docker compose --env-file .env.desarrollo config --quiet
+docker compose --env-file .env.desarrollo up -d
+```
+
+Los archivos `.env.*` están ignorados salvo `.env.example`. No se deben versionar contraseñas,
+tokens ni una `MONGO_URI` real: esta última contiene las credenciales completas. En Kubernetes,
+`DB_PASSWORD` o `MONGO_URI` deberán almacenarse en un Secret, nunca en un ConfigMap. También se debe
+evitar compartir la salida completa de `docker compose config`, porque muestra los valores resueltos.
+
+## Levantar la aplicación por comandos de Docker
 
 La aplicación debe levantarse manualmente respetando el siguiente orden. Obsérvese que la base de datos no publica puertos hacia el host, ya que constituye la capa más interna de la aplicación y solo debe ser accesible desde los contenedores conectados a la red Docker `catalogo-net`.
 
@@ -90,8 +150,8 @@ Es importante respetar este orden de arranque, ya que los distintos componentes 
 
 - La API debe iniciarse antes que el frontend porque nginx utiliza catalogo-api como upstream. Si ese nombre no puede resolverse al arrancar, nginx falla y el contenedor del frontend termina su ejecución.
 
-## Limitación actual
+## Ejecución manual y Compose
 
-Actualmente, este orden de arranque debe ser conocido y ejecutado manualmente por la persona que levanta la aplicación.
-
-La relación entre la red, el volumen y los distintos contenedores todavía no está declarada en un único archivo ejecutable. Esta limitación se resolverá en la siguiente etapa mediante Docker Compose.
+Los comandos anteriores conservan el procedimiento manual de referencia. En el uso normal,
+`docker-compose.yml` declara la red, el volumen, los healthchecks y el orden condicionado por salud,
+por lo que no es necesario crear los recursos ni coordinar el arranque manualmente.
