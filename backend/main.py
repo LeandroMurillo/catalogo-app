@@ -152,11 +152,11 @@ def campos_de_imagen(imagen: Optional[str]) -> tuple[dict, list]:
 def sembrar_catalogo() -> None:
     """Carga el catálogo de demo con sus imágenes.
 
-    Es idempotente: upsert por `sku` (que además tiene índice único), así que
+    Es idempotente: upsert por `nombre` (que además tiene índice único), así que
     correrlo N veces —o desde N réplicas -- deja siempre los mismos documentos.
     """
     for producto in CATALOGO_DEMO:
-        doc = {k: v for k, v in producto.items() if k not in ("sku", "imagen")}
+        doc = {k: v for k, v in producto.items() if k not in ("nombre", "imagen")}
         archivo = IMAGENES_DIR / producto["imagen"]
         if archivo.is_file():
             datos = archivo.read_bytes()
@@ -168,7 +168,7 @@ def sembrar_catalogo() -> None:
         else:
             log.warning("falta la imagen de demo %s", archivo)
         productos.update_one(
-            {"sku": producto["sku"]},
+            {"nombre": producto["nombre"]},
             {"$set": doc, "$setOnInsert": {"creado_en": datetime.now(timezone.utc)}},
             upsert=True,
         )
@@ -184,6 +184,7 @@ def esperar_mongo(reintentos: int = 10, espera_s: int = 3) -> None:
             # Sin esquema no significa sin diseño: los índices se declaran igual.
             productos.create_index([("categoria", ASCENDING)])
             productos.create_index([("sku", ASCENDING)], unique=True)
+            productos.create_index([("nombre", ASCENDING)], unique=True)
             log.info("conexión a MongoDB establecida (base=%s)", DB_NAME)
             return
         except PyMongoError as err:
@@ -254,7 +255,7 @@ def crear(producto: ProductoIn):
     try:
         resultado = productos.insert_one(doc)
     except DuplicateKeyError:
-        raise HTTPException(status_code=409, detail=f"ya existe un producto con SKU {producto.sku}")
+        raise HTTPException(status_code=409, detail="ya existe un producto con el mismo SKU o nombre")
     return serializar(productos.find_one({"_id": resultado.inserted_id}, SIN_BINARIOS))
 
 
@@ -307,7 +308,7 @@ def actualizar(id_: str, producto: ProductoIn):
             return_document=ReturnDocument.AFTER,
         )
     except DuplicateKeyError:
-        raise HTTPException(status_code=409, detail=f"ya existe un producto con SKU {producto.sku}")
+        raise HTTPException(status_code=409, detail="ya existe un producto con el mismo SKU o nombre")
     if not doc:
         raise HTTPException(status_code=404, detail="no encontrado")
     return serializar(doc)

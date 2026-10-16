@@ -85,6 +85,150 @@ tokens ni una `MONGO_URI` real: esta última contiene las credenciales completas
 `DB_PASSWORD` o `MONGO_URI` deberán almacenarse en un Secret, nunca en un ConfigMap. También se debe
 evitar compartir la salida completa de `docker compose config`, porque muestra los valores resueltos.
 
+## Puesta en marcha con Docker Compose
+
+Antes del primer uso de Compose se deben eliminar los contenedores y la red creados manualmente en
+la semana 3. El volumen no se elimina porque contiene el catálogo que se quiere conservar:
+
+```bash
+docker rm -f catalogo-frontend catalogo-api catalogo-db
+docker network rm catalogo-net
+docker compose config
+docker compose up --build -d
+docker compose ps
+docker compose logs -f catalogo-api
+```
+
+La red se elimina para que Compose pueda crearla y asignarle sus etiquetas. Si se conserva una red
+manual con el mismo nombre, según la versión de Compose se obtiene una advertencia o el error
+`network catalogo-net was found but has incorrect label`. El volumen `catalogo-db-data`, en cambio,
+se reutiliza intencionalmente y puede producir una advertencia sin perder los datos.
+
+La verificación produjo una configuración válida y los tres servicios
+alcanzaron el estado `healthy`. La base quedó visible solamente como `27017/tcp`, la API publicó
+`127.0.0.1:8000` y el frontend publicó el puerto 3000.
+
+### Healthchecks
+
+Cada capa comprueba su propia disponibilidad:
+
+- `catalogo-db` ejecuta `db.adminCommand('ping')` con `mongosh`. MongoDB permite esta operación sin
+  autenticación porque solo informa si el servidor responde; no permite leer ni modificar datos.
+  Esto evita incluir la contraseña en el comando del healthcheck y, por lo tanto, que quede visible
+  en la configuración o inspección del contenedor. Es una ventaja frente a una comprobación que
+  necesita transportar credenciales. Su alcance es limitado: un `ping` exitoso no demuestra que
+  `catalogo_user` exista ni que `DB_PASSWORD` sea correcta.
+- `catalogo-api` consulta `http://127.0.0.1:8000/health` con `urllib.request`. Ofrece la misma
+  comprobación HTTP que `curl`, pero ya viene con Python; instalar `curl` solo agregaría tamaño,
+  dependencias y superficie de ataque. `127.0.0.1:8000` apunta a Uvicorn dentro del propio
+  contenedor, por lo que el chequeo no depende de nginx, del DNS de Docker ni del puerto publicado
+  en el host. La ruta `/health` también comprueba MongoDB. `ROOT_PATH=/api` no cambia las rutas
+  internas: desde nginx se accede como `/api/health`, pero dentro de la API sigue siendo `/health`.
+- `catalogo-frontend` consulta `/healthz` con el `wget` incluido en BusyBox, ya disponible en Alpine.
+  Esta ruta comprueba nginx sin depender de la API.
+
+### Orden condicionado por salud
+
+La API declara `catalogo-db` con `condition: service_healthy`. La forma corta de `depends_on` solo
+esperaría a que el contenedor se iniciara, no a que MongoDB aceptara conexiones. La API conserva,
+además, diez reintentos cada tres segundos: esa defensa seguirá siendo necesaria en Kubernetes,
+donde no existe `depends_on`.
+
+El frontend declara la misma condición respecto de la API. Sin ningún `depends_on`, nginx puede
+arrancar antes de que el DNS de Docker conozca `catalogo-api` y terminar con
+`host not found in upstream`. La forma corta evitaría ese problema de resolución, pero
+`service_healthy` también evita respuestas `502` durante los primeros segundos de la API.
+
+## Persistencia e idempotencia
+
+El ciclo de vida se comprueba con:
+
+```bash
+docker compose down
+docker compose up -d
+curl -s localhost:3000/api/productos | head -c 300
+docker compose down -v
+```
+
+`docker compose down` elimina contenedores y la red, pero conserva el volumen nombrado. En la
+verificación se contaron 13 productos antes del `down` y los mismos 13 después del nuevo `up`, lo
+que confirma la persistencia. `docker compose down -v` elimina también `catalogo-db-data`; el
+siguiente arranque crea una base vacía y vuelve a cargar únicamente el catálogo demo. Debe usarse
+al final o sobre una copia si se quieren conservar datos agregados manualmente.
+
+La siembra usa un `upsert` por `nombre` y un índice único sobre ese campo. Con la base poblada se
+ejecutó:
+
+```bash
+docker compose up -d --force-recreate catalogo-api
+```
+
+La cantidad permaneció en 13 productos. El índice y el `upsert` hacen que el resultado sea el mismo
+incluso cuando varias réplicas intentan sembrar el catálogo al mismo tiempo.
+
+## Revisión de seguridad
+
+| Control | Resultado |
+| --- | --- |
+| Usuario de `catalogo-api` | `uid=1000(catalogo)`, distinto de root |
+| Usuario de `catalogo-frontend` | `uid=101(nginx)`, distinto de root |
+| Puerto del frontend | `3000:8080`, punto de entrada de la aplicación |
+| Puerto de la API | `127.0.0.1:8000:8000`, solo para depuración; en la semana 6 será interno |
+| Puerto de MongoDB | No publica puertos; solo expone `27017/tcp` dentro de `catalogo-net` |
+| Capabilities propias | API y frontend usan `cap_drop: [ALL]` y no agregan ninguna |
+| Capabilities de MongoDB | `CHOWN`, `DAC_OVERRIDE`, `SETGID` y `SETUID` |
+
+Los usuarios se comprobaron con `docker compose exec catalogo-api id` y
+`docker compose exec catalogo-frontend id`; los puertos, con `docker compose ps`.
+
+### Escaneo de vulnerabilidades
+
+Se ejecutó Trivy como contenedor sobre las dos imágenes propias:
+
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image catalogo-api:v1
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image catalogo-frontend:v1
+```
+
+| Imagen y origen | Vulnerabilidades | Con `Fixed Version` |
+| --- | ---: | ---: |
+| `catalogo-api:v1`, sistema base Debian | 166 | 2 |
+| `catalogo-api:v1`, dependencias Python | 17 | 17 |
+| `catalogo-frontend:v1`, sistema base Alpine | 159 | 159 |
+| `catalogo-frontend:v1`, dependencias de aplicación | 0 | 0 |
+
+La API informó, en total, 63 bajas, 68 medias, 49 altas y 3 de severidad desconocida. El frontend
+informó 42 bajas, 76 medias, 39 altas y 2 críticas. Estos resultados son una fotografía de la base
+de vulnerabilidades de Trivy al momento del escaneo y pueden cambiar al actualizarla o reconstruir
+las imágenes con versiones base nuevas.
+
+### Mínimo privilegio
+
+Los tres servicios eliminan todas las capabilities con `cap_drop: [ALL]`. La API y el frontend ya
+se ejecutan como usuarios no root y solo necesitan abrir puertos no privilegiados, por lo que
+funcionan sin agregar ninguna capability.
+
+MongoDB inicia como root para preparar `/data/db` y luego cambia al usuario `mongodb`. Sin
+capabilities terminó con estos errores:
+
+```text
+chown: changing ownership of '/proc/1/fd/1': Operation not permitted
+error: failed switching to 'mongodb': operation not permitted
+```
+
+`CHOWN` permite ajustar propietarios, mientras que `SETGID` y `SETUID` permiten cambiar al grupo y
+usuario de MongoDB. En una base limpia esas tres fueron suficientes; al reutilizar el volumen de
+semanas anteriores, quitar `DAC_OVERRIDE` produjo:
+
+```text
+find: '/data/db/diagnostic.data': Permission denied
+find: '/data/db/.mongodb': Permission denied
+find: '/data/db/journal': Permission denied
+```
+
+Por eso la lista final agrega únicamente `CHOWN`, `DAC_OVERRIDE`, `SETGID` y `SETUID`. Con ella,
+MongoDB reutilizó el volumen existente y alcanzó nuevamente el estado `healthy`.
+
 ## Levantar la aplicación por comandos de Docker
 
 La aplicación debe levantarse manualmente respetando el siguiente orden. Obsérvese que la base de datos no publica puertos hacia el host, ya que constituye la capa más interna de la aplicación y solo debe ser accesible desde los contenedores conectados a la red Docker `catalogo-net`.
@@ -152,6 +296,20 @@ Es importante respetar este orden de arranque, ya que los distintos componentes 
 
 ## Ejecución manual y Compose
 
-Los comandos anteriores conservan el procedimiento manual de referencia. En el uso normal,
-`docker-compose.yml` declara la red, el volumen, los healthchecks y el orden condicionado por salud,
-por lo que no es necesario crear los recursos ni coordinar el arranque manualmente.
+Los comandos anteriores conservan el procedimiento manual de referencia de la semana 3. La
+comparación con Compose es:
+
+| Aspecto | Tres comandos `docker run` | `docker-compose.yml` |
+| --- | --- | --- |
+| Definición | Opciones repartidas entre varios comandos | Configuración declarativa en un archivo versionado |
+| Red y volumen | Se crean manualmente antes de los contenedores | Compose los crea y administra, con nombres explícitos |
+| Orden de arranque | Lo coordina la persona que ejecuta los comandos | `depends_on` espera los healthchecks |
+| Estado de salud | Hay que consultar o probar cada proceso manualmente | Cada servicio declara su healthcheck y muestra `healthy` |
+| Variables | Se repiten como opciones `-e` | Se centralizan en `.env` y se documentan en `.env.example` |
+| Construcción | Requiere ejecutar `docker build` por separado | `docker compose up --build` construye e inicia |
+| Ciclo de vida | Cada contenedor se elimina por separado | `up`, `down` y `down -v` operan sobre todo el proyecto |
+| Seguridad | Las capabilities quedan implícitas por defecto | Se eliminan todas y MongoDB recupera solo las necesarias |
+
+Desaparecen la creación y coordinación manual de recursos y los tres `docker run`. Aparecen los
+healthchecks, las dependencias condicionadas, la validación previa, la reconstrucción integrada y
+una gestión conjunta y reproducible del proyecto.
