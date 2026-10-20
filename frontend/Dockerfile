@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
