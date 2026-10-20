@@ -313,3 +313,18 @@ comparación con Compose es:
 Desaparecen la creación y coordinación manual de recursos y los tres `docker run`. Aparecen los
 healthchecks, las dependencias condicionadas, la validación previa, la reconstrucción integrada y
 una gestión conjunta y reproducible del proyecto.
+
+## Cheatsheet de kubectl
+
+| Comando | Descripción |
+| --- | --- |
+| `kubectl config current-context` | Muestra el contexto activo para comprobar contra qué clúster se ejecutarán los comandos. |
+| `kubectl create namespace catalogo-app` | Crea el namespace que agrupa los recursos de la aplicación y los separa de los de otros proyectos. |
+| `kubectl config set-context --current --namespace=catalogo-app` | Establece `catalogo-app` como namespace predeterminado del contexto actual para no repetir `-n` en cada operación. |
+| `kubectl run catalogo-db --image=mongo:7 --dry-run=client -o yaml` | Genera localmente el manifiesto base del Pod de MongoDB sin crear el recurso en el clúster. |
+| `kubectl apply -f k8s/pod-catalogo-db.yaml` | Crea el recurso declarado en el archivo o actualiza su configuración cuando ya existe. |
+| `kubectl get pods -o wide` | Lista los Pods y agrega datos como la dirección IP y el nodo al que fueron asignados. |
+| `kubectl describe pod catalogo-api` | Muestra la configuración, el estado y los Events utilizados para diagnosticar el Pod de la API. |
+| `kubectl logs catalogo-api --previous` | Recupera los logs de la ejecución anterior del contenedor después de un reinicio. |
+| `kubectl port-forward pod/catalogo-api 8000:8000` | Abre un túnel temporal de depuración entre el puerto local `8000` y el mismo puerto del Pod. |
+| `kubectl delete pod catalogo-api` | Elimina el Pod de la API; permitió comprobar que, sin un controlador, Kubernetes no lo recrea. |

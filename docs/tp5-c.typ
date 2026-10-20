@@ -823,6 +823,163 @@ como configuración permanente.
   red; ahora falta el *Service*—.
 ]
 
+#resolucion[
+  Antes de repetir la prueba verificamos el contexto y el namespace efectivos. Ambos valores
+  confirman que los comandos se dirigieron al clúster `lmurillo` y al ámbito `catalogo-app`, donde
+  se habían creado los tres Pods.
+]
+
+#comandos[
+  ```text
+  homelab@rp5:~/Documents/catalogo-app$ kubectl config current-context
+  lmurillo
+  homelab@rp5:~/Documents/catalogo-app$ kubectl config view --minify -o jsonpath='{..namespace}{"\n"}'
+  catalogo-app
+  ```
+]
+
+La primera aplicación no produjo cambios porque el Pod creado en la consigna 4 todavía existía y
+su especificación coincidía con el manifiesto. Como `kubectl apply` no reinicia un recurso que no
+cambió, eliminamos el Pod y volvimos a aplicar el archivo para observar un ciclo de arranque desde
+el comienzo.
+
+#comandos[
+  ```text
+  homelab@rp5:~/Documents/catalogo-app$ kubectl apply -f k8s/pod-catalogo-frontend.yaml
+  pod/catalogo-frontend unchanged
+  homelab@rp5:~/Documents/catalogo-app$ kubectl delete pod catalogo-frontend
+  pod "catalogo-frontend" deleted from catalogo-app namespace
+  homelab@rp5:~/Documents/catalogo-app$ kubectl apply -f k8s/pod-catalogo-frontend.yaml
+  pod/catalogo-frontend created
+  ```
+]
+
+La observación continua mostró que el contenedor alcanzaba `Running` solo durante un instante,
+terminaba con `Error` y era reiniciado. Después de varios intentos, Kubernetes aplicó esperas
+progresivas y mostró `CrashLoopBackOff`. La política `restartPolicy: Always` explica los reinicios,
+pero no corrige la causa que hace terminar a nginx.
+
+#comandos[
+  ```text
+  homelab@rp5:~/Documents/catalogo-app$ kubectl get pod catalogo-frontend -w
+  NAME                READY   STATUS              RESTARTS      AGE
+  catalogo-frontend   0/1     ContainerCreating   0             13s
+  catalogo-frontend   1/1     Running             0             16s
+  catalogo-frontend   0/1     Error               0             17s
+  catalogo-frontend   1/1     Running             1 (6s ago)    20s
+  catalogo-frontend   0/1     Error               1 (8s ago)    22s
+  catalogo-frontend   0/1     CrashLoopBackOff    1 (14s ago)   33s
+  catalogo-frontend   1/1     Running             2 (18s ago)   37s
+  catalogo-frontend   0/1     Error               2 (19s ago)   38s
+  catalogo-frontend   0/1     CrashLoopBackOff    2 (29s ago)   64s
+  catalogo-frontend   1/1     Running             3 (33s ago)   68s
+  catalogo-frontend   0/1     Error               3 (34s ago)   69s
+  ^C
+  ```
+]
+
+Los logs exponen la causa interna. El _entrypoint_ sustituyó `API_HOST` y `API_PORT` en la plantilla
+de configuración, pero nginx no pudo resolver `catalogo-api` al validar el `proxy_pass`; por eso
+terminó inmediatamente con un error de nivel `emerg`.
+
+#comandos[
+  ```text
+  homelab@rp5:~/Documents/catalogo-app$ kubectl logs catalogo-frontend
+  /docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+  /docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+  /docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+  10-listen-on-ipv6-by-default.sh: info: Getting the checksum of /etc/nginx/conf.d/default.conf
+  10-listen-on-ipv6-by-default.sh: info: /etc/nginx/conf.d/default.conf differs from the packaged version
+  /docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh
+  /docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh
+  20-envsubst-on-templates.sh: Running envsubst on /etc/nginx/templates/default.conf.template to /etc/nginx/conf.d/default.conf
+  /docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh
+  /docker-entrypoint.sh: Configuration complete; ready for start up
+  2026/10/20 19:48:23 [emerg] 1#1: host not found in upstream "catalogo-api" in /etc/nginx/conf.d/default.conf:24
+  nginx: [emerg] host not found in upstream "catalogo-api" in /etc/nginx/conf.d/default.conf:24
+  ```
+]
+
+La inspección del Pod corroboró el diagnóstico: el contenedor terminó con código 1, no estaba
+preparado, acumulaba cuatro reinicios y el evento `BackOff` registraba los intentos fallidos. Las
+variables muestran además que nginx intentaba comunicarse con `catalogo-api` por el puerto `8000`.
+
+#comandos[
+  ```text
+  homelab@rp5:~/Documents/catalogo-app$ kubectl describe pod catalogo-frontend
+  Name:             catalogo-frontend
+  Namespace:        catalogo-app
+  Priority:         0
+  Service Account:  default
+  Node:             lmurillo/172.16.20.19
+  Start Time:       Tue, 20 Oct 2026 16:47:22 -0300
+  Labels:           run=catalogo-frontend
+  Annotations:      <none>
+  Status:           Running
+  IP:               10.244.0.14
+  IPs:
+    IP:  10.244.0.14
+  Containers:
+    catalogo-frontend:
+      Container ID:   containerd://dc201367cb4ef7389c6d4a087379b98e21f7217b14caf7cdf1929af265404b24
+      Image:          leandromurillo/catalogo-frontend:v1
+      Image ID:       docker.io/leandromurillo/catalogo-frontend@sha256:6eba7092ff336ced7ecf6b5d79007625beada079c8b8b7478561e151f133ada1
+      Port:           8080/TCP
+      Host Port:      0/TCP
+      State:          Terminated
+        Reason:       Error
+        Exit Code:    1
+        Started:      Tue, 20 Oct 2026 16:49:19 -0300
+        Finished:     Tue, 20 Oct 2026 16:49:19 -0300
+      Last State:     Terminated
+        Reason:       Error
+        Exit Code:    1
+        Started:      Tue, 20 Oct 2026 16:48:23 -0300
+        Finished:     Tue, 20 Oct 2026 16:48:23 -0300
+      Ready:          False
+      Restart Count:  4
+      Environment:
+        API_HOST:  catalogo-api
+        API_PORT:  8000
+      Mounts:
+        /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-rwrgj (ro)
+  Conditions:
+    Type                        Status
+    PodReadyToStartContainers   True
+    Initialized                 True
+    Ready                       False
+    ContainersReady             False
+    PodScheduled                True
+  Volumes:
+    kube-api-access-rwrgj:
+      Type:                    Projected (a volume that contains injected data from multiple sources)
+      TokenExpirationSeconds:  3607
+      ConfigMapName:           kube-root-ca.crt
+      Optional:                false
+      DownwardAPI:             true
+  QoS Class:                   BestEffort
+  Node-Selectors:              <none>
+  Tolerations:                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                               node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+  Events:
+    Type     Reason     Age                  From               Message
+    ----     ------     ----                 ----               -------
+    Normal   Scheduled  2m32s                default-scheduler  Successfully assigned catalogo-app/catalogo-frontend to lmurillo
+    Normal   Pulled     37s (x5 over 2m27s)  kubelet            spec.containers{catalogo-frontend}: Container image "leandromurillo/catalogo-frontend:v1" already present on machine and can be accessed by the pod
+    Normal   Created    35s (x5 over 2m24s)  kubelet            spec.containers{catalogo-frontend}: Container created
+    Normal   Started    35s (x5 over 2m23s)  kubelet            spec.containers{catalogo-frontend}: Container started
+    Warning  BackOff    33s (x4 over 2m16s)  kubelet            spec.containers{catalogo-frontend}: Back-off restarting failed container catalogo-frontend in pod catalogo-frontend_catalogo-app(bb8b21a7-e5f0-4727-a7b9-8e35371c1ffe)
+  ```
+]
+
+El mensaje coincide con el documentado para la tercera semana, pero no su causa. En la ejecución
+manual con Docker, los contenedores debían compartir la red `catalogo-net` para que el DNS interno
+resolviera `catalogo-api`; sin esa red, nginx no podía encontrar el upstream. En Kubernetes la red
+de Pods sí existe, pero el nombre de un Pod no constituye una identidad DNS estable para los demás
+Pods. Esa identidad la proporciona un Service y todavía no se creó ninguno llamado
+`catalogo-api`. Por lo tanto, el error vuelve a ser `host not found in upstream`, ahora debido a la
+ausencia del Service y no a la ausencia de una red compartida.
+
 #consigna(8)[
   Acceder a la API sin Service, mediante `kubectl port-forward pod/catalogo-api 8000:8000`, y
   registrar las salidas de `curl -s localhost:8000/health` y
@@ -833,6 +990,119 @@ como configuración permanente.
   `port-forward` constituye una herramienta de *depuración* y no un mecanismo de publicación.
 ]
 
+#resolucion[
+  Como el Pod de la API había sido recreado al restituir `DB_HOST=catalogo-db`, se encontraba en
+  `CrashLoopBackOff`. Para efectuar la prueba lo recreamos temporalmente con la nueva IP de
+  MongoDB y, una vez iniciado, restituimos en el archivo tanto el nombre `catalogo-db` como el
+  marcador de la contraseña sin volver a aplicar el manifiesto. La ausencia de salida de
+  `git diff` confirma que el archivo no conservó la IP descartable ni la credencial utilizada.
+]
+
+#comandos[
+  ```text
+homelab@rp5:~/Documents/catalogo-app$ kubectl delete pod catalogo-api
+pod "catalogo-api" deleted from catalogo-app namespace
+homelab@rp5:~/Documents/catalogo-app$ kubectl apply -f k8s/pod-catalogo-api.yaml
+pod/catalogo-api created
+homelab@rp5:~/Documents/catalogo-app$ kubectl get pod catalogo-api -w
+NAME           READY   STATUS    RESTARTS   AGE
+catalogo-api   1/1     Running   0          46s
+^Chomelab@rp5:~/Documents/catalogo-app$ kubectl logs catalogo-api
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+[2026-10-20T20:22:03+0000] WARNING intento 1/10 de conexión falló: No servers found yet, Timeout: 3.0s, Topology Description: <TopologyDescription id: 6ad7cd68304c42d79ac6431a, topology_type: Unknown, servers: [<ServerDescription ('10.244.0.12', 27017) server_type: Unknown, rtt: None>]>
+[2026-10-20T20:22:18+0000] INFO conexión a MongoDB establecida (base=catalogodb)
+[2026-10-20T20:22:19+0000] INFO catálogo de demo sembrado (12 productos)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+homelab@rp5:~/Documents/catalogo-app$ kubectl get pod catalogo-api
+NAME           READY   STATUS    RESTARTS   AGE
+catalogo-api   1/1     Running   0          92s
+homelab@rp5:~/Documents/catalogo-app$ git diff -- k8s/pod-catalogo-api.yaml
+homelab@rp5:~/Documents/catalogo-app$ kubectl port-forward pod/catalogo-api 8000:8000
+Forwarding from 127.0.0.1:8000 -> 8000
+Forwarding from [::1]:8000 -> 8000
+Handling connection for 8000
+Handling connection for 8000
+Handling connection for 8000
+Handling connection for 8000
+Handling connection for 8000
+Handling connection for 8000
+Handling connection for 8000
+Handling connection for 8000
+Handling connection for 8000
+Handling connection for 8000
+Handling connection for 8000
+Handling connection for 8000
+^Chomelab@rp5:~/Documents/catalogo-app$
+
+homelab@rp5:~/Documents/catalogo-app$ curl -s localhost:8000/health
+{"status":"ok","db":"ok","version":"v1"}homelab@rp5:~/Documents/catalogo-app$ curl -s localhost:8000/productos
+[{"nombre":"Apple iPhone 6 (Gold, 32 GB)","categoria":"Apple","creado_en":"2026-10-20T20:22:19.587000","descripcion":"Clásico de 4.7\" con Touch ID y cuerpo de aluminio.","imagen_hash":"7e23251b780a76a1","imagen_tipo":"image/jpeg","precio":44000,"sku":999666,"stock":2,"id":"6ad7cd7b68fed007a0b5bf84","imagen":true},{"nombre":"Apple iPhone 8 Plus (Silver, 64 GB)","categoria":"Apple","creado_en":"2026-10-20T20:22:19.799000","descripcion":"Pantalla Retina HD de 5.5\", carga inalámbrica y chip A11.","imagen_hash":"27cf5a0cc72a5c03","imagen_tipo":"image/jpeg","precio":48000,"sku":379182,"stock":6,"id":"6ad7cd7b68fed007a0b5bf8a","imagen":true},{"nombre":"Apple iPhone X (Space Gray, 256 GB)","categoria":"Apple","creado_en":"2026-10-20T20:22:19.468000","descripcion":"Super Retina de 5.8\", Face ID y chip A11 Bionic.","imagen_hash":"8101c6ff7c22f74d","imagen_tipo":"image/jpeg","precio":25000,"sku":456654,"stock":3,"id":"6ad7cd7b68fed007a0b5bf7a","imagen":true},{"nombre":"Asus ZenFone Max M1 (Black, 32 GB) (3 GB RAM)","categoria":"Asus","creado_en":"2026-10-20T20:22:19.514000","descripcion":"Batería de 4000 mAh que funciona también como power bank.","imagen_hash":"95255abbb146483b","imagen_tipo":"image/jpeg","precio":84000,"sku":963852,"stock":0,"id":"6ad7cd7b68fed007a0b5bf82","imagen":true},{"nombre":"Honor 9N (Midnight Black, 32 GB) (3 GB RAM)","categoria":"Honor","creado_en":"2026-10-20T20:22:19.470000","descripcion":"Pantalla FullView de 5.84\" con notch y cámara dual de 13 MP.","imagen_hash":"1e45d7360052e1e1","imagen_tipo":"image/jpeg","precio":39000,"sku":123222,"stock":11,"id":"6ad7cd7b68fed007a0b5bf7e","imagen":true},{"nombre":"Lenovo K8 Note (Venom Black, 64 GB) (4 GB RAM)","categoria":"Lenovo","creado_en":"2026-10-20T20:22:19.481000","descripcion":"Procesador Helio X23 de diez núcleos y Android puro.","imagen_hash":"5bf64a1fb53294cd","imagen_tipo":"image/jpeg","precio":36000,"sku":741852,"stock":5,"id":"6ad7cd7b68fed007a0b5bf80","imagen":true},{"nombre":"OPPO K1 (Piano Black, 64 GB) (4 GB RAM)","categoria":"OPPO","creado_en":"2026-10-20T20:22:19.466000","descripcion":"Lector de huellas bajo la pantalla AMOLED y cámara frontal de 25 MP.","imagen_hash":"24b3652bc891267c","imagen_tipo":"image/jpeg","precio":65000,"sku":357842,"stock":6,"id":"6ad7cd7b68fed007a0b5bf78","imagen":true},{"nombre":"Redmi Y2 (Black, 32 GB) (3 GB RAM)","categoria":"Xiaomi","creado_en":"2026-10-20T20:22:18.150000","descripcion":"Pantalla 5.99\" HD+, cámara dual de 12 MP y batería de 3080 mAh.","imagen_hash":"3926b6235eecc7b3","imagen_tipo":"image/jpeg","precio":25000,"sku":852369,"stock":14,"id":"6ad7cd7b68fed007a0b5bf74","imagen":true},{"nombre":"Samsung Galaxy A8 Star (White, 64 GB) (6 GB RAM)","categoria":"Samsung","creado_en":"2026-10-20T20:22:19.778000","descripcion":"Super AMOLED de 6.3\" y cámara dual de 16 MP + 24 MP.","imagen_hash":"6e0b6f7b0f8514c0","imagen_tipo":"image/jpeg","precio":78000,"sku":848484,"stock":8,"id":"6ad7cd7b68fed007a0b5bf88","imagen":true},{"nombre":"Samsung Galaxy A9 (Bubblegum Pink, 128 GB)","categoria":"Samsung","creado_en":"2026-10-20T20:22:19.692000","descripcion":"Primer smartphone con cuatro cámaras traseras y pantalla de 6.3\".","imagen_hash":"97b0b86fea2f5dc7","imagen_tipo":"image/jpeg","precio":97000,"sku":332211,"stock":4,"id":"6ad7cd7b68fed007a0b5bf86","imagen":true},{"nombre":"Samsung Galaxy M20 (Charcoal Black, 4+64GB)","categoria":"Samsung","creado_en":"2026-10-20T20:22:19.465000","descripcion":"Batería de 5000 mAh con carga rápida y pantalla Infinity-V de 6.3\".","imagen_hash":"178a6127bb70f3cb","imagen_tipo":"image/jpeg","precio":58000,"sku":159753,"stock":9,"id":"6ad7cd7b68fed007a0b5bf76","imagen":true},{"nombre":"Vivo V15 Pro (Topaz Blue, 128 GB) (6 GB RAM)","categoria":"Vivo","creado_en":"2026-10-20T20:22:19.469000","descripcion":"Cámara frontal pop-up de 32 MP y triple cámara trasera de 48 MP.","imagen_hash":"11814686e87c1818","imagen_tipo":"image/jpeg","precio":55000,"sku":358426,"stock":7,"id":"6ad7cd7b68fed007a0b5bf7c","imagen":true}]homelcurl -s -o /dev/null -w 'HTTP %{http_code}\n' localhost:8000/api/openapi.json' localhost:8000/api/openapi.json
+HTTP 200
+homelab@rp5:~/Documents/catalogo-app$ curl -s -o /dev/null -w 'HTTP %{http_code}\n' localhost:8000/openapi.json
+HTTP 200
+homelab@rp5:~/Documents/catalogo-app$ ^C
+homelab@rp5:~/Documents/catalogo-app$
+  ```
+]
+
+El Pod alcanzó `Running` sin reinicios. El primer intento de conexión encontró a MongoDB todavía
+no disponible, pero los reintentos de la aplicación permitieron establecer la conexión, sembrar
+los doce productos y completar el arranque. A continuación, `port-forward` abrió un túnel entre el
+puerto `8000` de la máquina local y el mismo puerto del Pod. Las líneas `Handling connection`
+registran las solicitudes transportadas mientras el comando permaneció activo.
+
+La consulta a `/health` confirmó que tanto la API como MongoDB respondían correctamente, y
+`/productos` devolvió el catálogo completo. El acceso se realizó directamente al Pod, sin crear un
+Service ni publicar un puerto permanente en el nodo.
+
+Repetimos de forma limpia las comprobaciones de la documentación y del esquema OpenAPI. Contra lo
+esperado por la consigna, las tres direcciones respondieron con estado `200` y la interfaz de
+Swagger mostró correctamente las operaciones de la API.
+
+#comandos[
+  ```text
+  homelab@rp5:~/Documents/catalogo-app$ curl -s -o /dev/null -w 'docs: HTTP %{http_code}\n' localhost:8000/docs
+  docs: HTTP 200
+  homelab@rp5:~/Documents/catalogo-app$ curl -s -o /dev/null -w 'OpenAPI con prefijo: HTTP %{http_code}\n' localhost:8000/api/openapi.json
+  OpenAPI con prefijo: HTTP 200
+  homelab@rp5:~/Documents/catalogo-app$ curl -s -o /dev/null -w 'OpenAPI interno: HTTP %{http_code}\n' localhost:8000/openapi.json
+  OpenAPI interno: HTTP 200
+  ```
+]
+
+Verificamos dentro del contenedor las versiones responsables de este comportamiento. La imagen
+ejecuta FastAPI 0.115.0 junto con Starlette 0.38.6:
+
+#comandos[
+  ```text
+  homelab@rp5:~/Documents/catalogo-app$ kubectl exec catalogo-api -- python -c "import fastapi, starlette; print('FastAPI', fastapi.__version__); print('Starlette', starlette.__version__)"
+  FastAPI 0.115.0
+  Starlette 0.38.6
+  ```
+]
+
+`ROOT_PATH=/api` hace que FastAPI informe el prefijo público en el _scope_ ASGI y genere para
+Swagger la dirección `/api/openapi.json`. En Starlette 0.38.6, el enrutador elimina ese `root_path`
+cuando está presente antes de comparar la dirección solicitada con las rutas internas. De este
+modo, una solicitud a `/api/openapi.json` se compara internamente con `/openapi.json` y encuentra
+el esquema. Si la solicitud llega directamente a `/openapi.json`, tampoco hay un prefijo que
+eliminar y la misma ruta vuelve a coincidir. Por eso ambas direcciones respondieron `200` y
+Swagger funcionó aun sin el proxy.
+
+El resultado real no coincide con el `404` anticipado por el enunciado, pero no invalida la función
+de `ROOT_PATH`: continúa describiendo el prefijo bajo el cual la aplicación se publica normalmente
+detrás de nginx. La diferencia se debe al comportamiento de las versiones efectivamente
+ejecutadas y se documenta sin reemplazar la evidencia por el resultado esperado.
+
+Finalmente, `port-forward` constituye una herramienta de depuración y no un mecanismo de
+publicación. El túnel depende del proceso local de `kubectl` y de un Pod concreto: termina al
+presionar `Ctrl+C` y no proporciona una dirección estable, balanceo ni recuperación frente al
+reemplazo del Pod. Esas responsabilidades corresponden a otros recursos de Kubernetes, entre
+ellos los Services.
+
+
 #pagebreak()
 
 #consigna(9)[
@@ -840,6 +1110,53 @@ como configuración permanente.
   `kubectl delete pod` y verificar con `kubectl get pods` que no se recrea. Un Pod es mortal y
   nadie lo resucita: ese hecho es exactamente el punto de partida de la clase siguiente.
 ]
+
+#resolucion[
+  Antes de eliminar el recurso comprobamos que `catalogo-api` existía, estaba preparado y llevaba
+  dieciocho minutos en estado `Running` sin reinicios. De esta manera, su desaparición posterior
+  puede atribuirse al comando de eliminación y no a un fallo de la aplicación.
+]
+
+#comandos[
+  ```text
+  homelab@rp5:~/Documents/catalogo-app$ kubectl get pod catalogo-api
+  NAME           READY   STATUS    RESTARTS   AGE
+  catalogo-api   1/1     Running   0          18m
+  homelab@rp5:~/Documents/catalogo-app$ kubectl delete pod catalogo-api
+  pod "catalogo-api" deleted from catalogo-app namespace
+  ```
+]
+
+La consulta posterior mostró únicamente a MongoDB y al frontend. La API no reapareció en la lista
+y una búsqueda directa devolvió `NotFound`, confirmando que el objeto dejó de existir y que ningún
+controlador creó un reemplazo.
+
+#comandos[
+  ```text
+  homelab@rp5:~/Documents/catalogo-app$ kubectl get pods
+  NAME                READY   STATUS    RESTARTS        AGE
+  catalogo-db         1/1     Running   0               19h
+  catalogo-frontend   0/1     Error     15 (6m5s ago)   53m
+  homelab@rp5:~/Documents/catalogo-app$ kubectl get pod catalogo-api
+  Error from server (NotFound): pods "catalogo-api" not found
+  ```
+]
+
+Los manifiestos de esta entrega crean objetos de tipo `Pod` directamente. El archivo
+`pod-catalogo-api.yaml` guardado en el repositorio describe cómo volver a crearlo, pero no vigila
+el clúster ni se aplica por sí solo. Para recuperar la API sería necesario ejecutar nuevamente
+`kubectl apply`.
+
+La política `restartPolicy: Always` tampoco cambia este resultado. Esa política permite que el
+kubelet reinicie un contenedor que termina dentro de un Pod existente, como ocurrió con los
+`CrashLoopBackOff` anteriores. Al eliminar el Pod se elimina también su especificación, incluida
+la política de reinicio. Como no existe un Deployment, ReplicaSet ni otro controlador que declare
+una cantidad deseada de réplicas, Kubernetes no tiene ningún estado que reconciliar y no crea un
+Pod nuevo.
+
+La prueba demuestra que un Pod suelto es un recurso mortal: una vez eliminado, permanece ausente.
+En una etapa posterior, un Deployment asumirá la vigilancia y ordenará crear un reemplazo cuando
+falte una de sus réplicas.
 
 #consigna(10)[
   Incorporar al `README.md` un *cheatsheet propio* con los diez comandos de `kubectl`
@@ -852,3 +1169,65 @@ como configuración permanente.
   los tres manifiestos de esta entrega, indicando qué se conservó, qué desapareció y qué todavía
   falta.
 ]
+
+#resolucion[
+  Los tres manifiestos reproducen la composición básica de la aplicación, pero todavía no
+  trasladan todas las responsabilidades que Docker Compose resolvía en un único archivo. La
+  comparación permite separar la configuración propia de los procesos de las funciones de
+  coordinación que deberán incorporarse mediante otros recursos de Kubernetes.
+]
+
+*Qué se conservó.*
+
+- La aplicación continúa dividida en frontend, API y MongoDB, ahora representados por tres Pods.
+- Se mantienen las imágenes `mongo:7`, `catalogo-api:v1` y `catalogo-frontend:v1`; las dos imágenes
+  propias utilizan además sus nombres completos de Docker Hub para que el nodo pueda descargarlas.
+- Se trasladaron las principales variables de entorno de cada componente, incluidas las variables
+  `DB_*`, `MONGO_INITDB_ROOT_*`, `API_*`, `APP_VERSION`, `SEED_DEMO` y `ROOT_PATH=/api`.
+- Se conservaron los puertos internos `27017`, `8000` y `8080`. En Kubernetes, `containerPort`
+  documenta el puerto del contenedor, pero no lo publica fuera del Pod.
+- La API conserva sus reintentos de conexión a MongoDB. Esta defensa pertenece a la aplicación y
+  sigue siendo necesaria aunque cambie el orquestador.
+
+*Qué desapareció.*
+
+- Las secciones `build` ya no existen: Kubernetes no construye las imágenes, sino que descarga las
+  que fueron creadas y publicadas previamente en un registry.
+- Desapareció la red de proyecto `catalogo-net` y, con ella, el DNS que Compose proporcionaba a los
+  servicios por sus nombres. El clúster posee una red de Pods, pero los Pods sueltos no obtienen
+  por ello una identidad DNS estable.
+- Se eliminaron `depends_on` y sus condiciones `service_healthy`. Kubernetes no ordena el arranque
+  de estos Pods ni espera que una dependencia esté saludable antes de iniciar otra.
+- Los tres `healthcheck` de Compose no se trasladaron a probes de Kubernetes. Por eso `Running` no
+  garantiza que un componente esté preparado ni que sus dependencias respondan.
+- El volumen nombrado `catalogo-db-data` no tiene equivalente en el manifiesto de MongoDB. Los
+  datos se almacenan en la capa escribible del contenedor y se pierden junto con el Pod.
+- Desaparecieron las publicaciones de puertos `3000:8080` y `127.0.0.1:8000:8000`. En esta entrega
+  ningún componente se publica de forma permanente; `port-forward` solo permitió depurarlo.
+- Ya no se cargan variables desde `.env` ni se validan con las expresiones obligatorias de Compose.
+  Los valores quedaron repetidos directamente en los manifiestos.
+- Tampoco se trasladaron `cap_drop` y `cap_add`, por lo que los Pods no expresan mediante un
+  `securityContext` la política de mínimo privilegio definida la semana anterior.
+- Se perdió la administración conjunta que ofrecían `docker compose up` y `docker compose down`:
+  cada manifiesto se aplica y elimina por separado.
+
+*Qué todavía falta.*
+
+- Services que proporcionen nombres DNS y direcciones virtuales estables para `catalogo-db` y
+  `catalogo-api`, además de un punto de acceso adecuado para el frontend.
+- Deployments y ReplicaSets que declaren la cantidad deseada de réplicas y recreen los Pods cuando
+  desaparezcan.
+- Un PersistentVolumeClaim para desacoplar los datos de MongoDB del ciclo de vida de su Pod.
+- ConfigMaps para la configuración no sensible y Secrets para las credenciales, en lugar de
+  escribir todos los valores directamente en los manifiestos.
+- Probes de inicio, disponibilidad y vida. Junto con los reintentos de las aplicaciones, estas
+  reemplazarán la coordinación basada en los `healthcheck` y `depends_on` de Compose.
+- Un mecanismo de publicación, mediante Services y eventualmente un Ingress, que permita acceder
+  a la aplicación sin depender de `port-forward`.
+- Un `securityContext` que declare usuarios, capabilities y demás restricciones de ejecución, así
+  como solicitudes y límites de recursos para que el scheduler pueda administrar la carga.
+
+En síntesis, los Pods conservaron los procesos y su configuración básica, pero todavía faltan los
+recursos que aportan descubrimiento, persistencia, salud, publicación y recuperación automática.
+Esta entrega deja esas ausencias de manera deliberada: los fallos observados muestran por qué una
+aplicación de Kubernetes no se resuelve únicamente convirtiendo cada servicio de Compose en un Pod.
