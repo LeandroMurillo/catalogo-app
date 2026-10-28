@@ -314,6 +314,100 @@ Desaparecen la creación y coordinación manual de recursos y los tres `docker r
 healthchecks, las dependencias condicionadas, la validación previa, la reconstrucción integrada y
 una gestión conjunta y reproducible del proyecto.
 
+## Despliegue con Kubernetes
+
+Los Services del namespace `catalogo-app` usan la label `app` para descubrir los Pods administrados
+por cada Deployment. La comprobación solicitada en el TP6 produjo la siguiente salida:
+
+```console
+homelab@rp5:~/Documents/catalogo-app$ kubectl get endpoints -n catalogo-app -o wide
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME                ENDPOINTS                           AGE
+catalogo-api        10.244.0.28:8000,10.244.0.29:8000   27m
+catalogo-db         10.244.0.27:27017                   27m
+catalogo-frontend   10.244.0.30:8080,10.244.0.31:8080   27m
+```
+
+Los endpoints confirman que los selectors coinciden con las labels de los Pods: MongoDB aporta un
+destino en el puerto `27017`, mientras que la API y el frontend aportan dos destinos en los puertos
+`8000` y `8080`, respectivamente. Estas cantidades coinciden con las réplicas declaradas en los
+Deployments. Ningún Service muestra `<none>`; si un selector no coincidiera con ninguna label, el
+Service se crearía igualmente, pero no tendría destinos y no podría reenviar tráfico.
+
+Las direcciones `10.244.0.x` pertenecen a los Pods y pueden cambiar cuando estos se reemplazan. Los
+clientes no deben depender de ellas: utilizan el nombre DNS estable del Service y Kubernetes
+mantiene actualizados sus endpoints. La advertencia mostrada corresponde a la evolución de la API;
+la misma asociación también puede consultarse mediante `kubectl get endpointslices -n catalogo-app`.
+
+### NodePort temporal de la API
+
+El Service `catalogo-api-nodeport` publica temporalmente la API en
+`http://<IP-del-nodo>:30502` para realizar comprobaciones directas sin pasar por nginx. Usa el
+selector `app=catalogo-api`, por lo que apunta a las mismas dos réplicas que el Service interno
+`catalogo-api`:
+
+```console
+homelab@rp5:~/Documents/catalogo-app$ kubectl get endpoints \
+  catalogo-api catalogo-api-nodeport -n catalogo-app -o wide
+NAME                    ENDPOINTS
+catalogo-api            10.244.0.28:8000,10.244.0.29:8000
+catalogo-api-nodeport   10.244.0.28:8000,10.244.0.29:8000
+
+homelab@rp5:~/Documents/catalogo-app$ curl -s http://172.16.20.19:30502/health
+{"status":"ok","db":"ok","version":"v1"}
+```
+
+`catalogo-api-nodeport` existe únicamente con fines de depuración y verificación durante el TP6.
+*No formará parte del chart de la semana 8*: en el despliegue normal la API permanecerá como
+`ClusterIP` y recibirá tráfico solo desde el frontend dentro del clúster. Evitar su exposición
+reduce los puntos de entrada públicos y conserva la separación entre las capas de la aplicación.
+
+### Limitación conocida: persistencia de MongoDB
+
+El Deployment de Kubernetes `catalogo-db` no monta actualmente un volumen persistente en
+`/data/db`. Esta limitación no afecta al despliegue con Docker Compose, que sí utiliza el volumen
+nombrado `catalogo-db-data`, pero implica que los datos de MongoDB se pierden cuando Kubernetes
+reemplaza su Pod.
+
+La limitación se comprobó partiendo del producto manual `Celular de Ejemplo`, con SKU `1001`. Se
+eliminó únicamente el Pod de MongoDB y el Deployment creó otro automáticamente:
+
+```console
+homelab@rp5:~/Documents/catalogo-app$ curl -s \
+  'http://172.16.20.19:30502/productos?q=1001'
+[{"sku":1001,"nombre":"Celular de Ejemplo",...,"imagen":true}]
+
+homelab@rp5:~/Documents/catalogo-app$ kubectl delete pod \
+  -l app=catalogo-db -n catalogo-app
+pod "catalogo-db-654f9f8fdc-nxl6q" deleted from catalogo-app namespace
+
+homelab@rp5:~/Documents/catalogo-app$ curl -s \
+  http://172.16.20.19:30502/productos
+[]
+```
+
+La autorreparación recuperó el proceso de MongoDB, pero no su contenido. Después se reinició la API
+para ejecutar nuevamente la siembra configurada con `SEED_DEMO=true`:
+
+```console
+homelab@rp5:~/Documents/catalogo-app$ kubectl rollout restart \
+  deployment/catalogo-api -n catalogo-app
+deployment.apps/catalogo-api restarted
+
+homelab@rp5:~/Documents/catalogo-app$ curl -s \
+  'http://172.16.20.19:30502/productos?q=Honor'
+[{"nombre":"Honor 9N (Midnight Black, 32 GB) (3 GB RAM)",...,"sku":123222,...}]
+
+homelab@rp5:~/Documents/catalogo-app$ curl -s \
+  'http://172.16.20.19:30502/productos?q=1001'
+[]
+```
+
+Los doce productos de demostración reaparecen porque están incluidos en la imagen de la API y la
+siembra usa operaciones idempotentes. Los productos cargados manualmente no pueden reconstruirse.
+La persistencia real de MongoDB se incorporará en la semana 7 mediante un volumen persistente
+montado en `/data/db`.
+
 ## Cheatsheet de kubectl
 
 | Comando | Descripción |
